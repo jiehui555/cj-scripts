@@ -17,8 +17,10 @@ from PIL import Image
 
 def config(key: str, default: Any = None) -> Any:
     """获取配置"""
+    current_path = os.path.dirname(os.path.abspath(__file__))
+
     data = {
-        "TEMP_DIR": os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp"),
+        "TEMP_DIR": os.path.join(current_path, "temp", "send_daily_report"),
         "CJPLUS_URL": os.getenv("CJPLUS_URL"),
         "CJPLUS_USERNAME": os.getenv("CJPLUS_USERNAME"),
         "CJPLUS_PASSWORD": os.getenv("CJPLUS_PASSWORD"),
