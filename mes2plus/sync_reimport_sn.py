@@ -1,17 +1,21 @@
 from __future__ import annotations
 
-import contextlib
 from datetime import datetime, timedelta
 import logging
 import os
 import re
-from typing import Generator, Optional
+from typing import Optional
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 import pymysql
 
 load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
 
 type PyMysqlConn = pymysql.Connection[pymysql.cursors.DictCursor]
 
@@ -193,13 +197,6 @@ def insert_plus_barcodes(
 
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
-    load_dotenv()
-    logging.info("开始执行")
-
     mes_conn: Optional[PyMysqlConn] = None
     plus_conn: Optional[PyMysqlConn] = None
     try:

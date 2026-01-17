@@ -14,6 +14,13 @@ from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright, ViewportSize, Page, Locator
 from PIL import Image
 
+load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+
 
 def config(key: str, default: Any = None) -> Any:
     """获取配置"""
@@ -317,13 +324,6 @@ def send_report_email(img_paths: List[str]) -> None:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
-    load_dotenv()
-    logging.info("开始执行")
-
     # 重置临时目录
     TEMP_DIR = f"{config('TEMP_DIR')}"
     if os.path.exists(TEMP_DIR):
@@ -338,5 +338,3 @@ if __name__ == "__main__":
     # 打包并发送邮件
     send_report_email(images)
     logging.info("已发送邮件")
-
-    logging.info("执行完毕")
