@@ -1,16 +1,13 @@
 from __future__ import annotations
 
+import argparse
 from datetime import datetime, timedelta
 import logging
-import os
 import re
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from dotenv import load_dotenv
 import pymysql
-
-load_dotenv()
 
 logging.basicConfig(
     level=logging.INFO,
@@ -20,15 +17,22 @@ logging.basicConfig(
 type PyMysqlConn = pymysql.Connection[pymysql.cursors.DictCursor]
 
 
-def get_mes_conn(autocommit: bool = True) -> PyMysqlConn:
+def get_mes_conn(
+    host: str,
+    port: int,
+    user: str,
+    password: str,
+    database: str,
+    autocommit: bool = True,
+) -> PyMysqlConn:
     """获取 MES 数据库连接"""
     try:
         conn = pymysql.connect(
-            host=os.getenv("DB_MES_HOST"),
-            port=int(os.getenv("DB_MES_PORT", 3306)),
-            user=os.getenv("DB_MES_USER"),
-            password=os.getenv("DB_MES_PASS", ""),
-            database=os.getenv("DB_MES_NAME"),
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            database=database,
             charset="utf8mb4",
             cursorclass=pymysql.cursors.DictCursor,
             autocommit=autocommit,
@@ -39,15 +43,22 @@ def get_mes_conn(autocommit: bool = True) -> PyMysqlConn:
         raise e
 
 
-def get_plus_conn(autocommit: bool = True) -> PyMysqlConn:
+def get_plus_conn(
+    host: str,
+    port: int,
+    user: str,
+    password: str,
+    database: str,
+    autocommit: bool = True,
+) -> PyMysqlConn:
     """获取 PLUS 数据库连接"""
     try:
         conn = pymysql.connect(
-            host=os.getenv("DB_PLUS_HOST"),
-            port=int(os.getenv("DB_PLUS_PORT", 3306)),
-            user=os.getenv("DB_PLUS_USER"),
-            password=os.getenv("DB_PLUS_PASS", ""),
-            database=os.getenv("DB_PLUS_NAME"),
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            database=database,
             charset="utf8mb4",
             cursorclass=pymysql.cursors.DictCursor,
             autocommit=autocommit,
@@ -196,14 +207,50 @@ def insert_plus_barcodes(
         return cursor.rowcount
 
 
+def parse_args():
+    """解析命令行参数"""
+    parser = argparse.ArgumentParser(description="同步 MES 重新导入的条码到 PLUS 系统")
+
+    # MES 数据库参数
+    parser.add_argument("--mes-host", required=True, help="MES 数据库主机地址")
+    parser.add_argument("--mes-port", type=int, default=3306, help="MES 数据库端口")
+    parser.add_argument("--mes-user", required=True, help="MES 数据库用户名")
+    parser.add_argument("--mes-pass", default="", help="MES 数据库密码")
+    parser.add_argument("--mes-name", required=True, help="MES 数据库名称")
+
+    # PLUS 数据库参数
+    parser.add_argument("--plus-host", required=True, help="PLUS 数据库主机地址")
+    parser.add_argument("--plus-port", type=int, default=3306, help="PLUS 数据库端口")
+    parser.add_argument("--plus-user", required=True, help="PLUS 数据库用户名")
+    parser.add_argument("--plus-pass", default="", help="PLUS 数据库密码")
+    parser.add_argument("--plus-name", required=True, help="PLUS 数据库名称")
+
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
+    # 解析命令行参数
+    args = parse_args()
+
     mes_conn: Optional[PyMysqlConn] = None
     plus_conn: Optional[PyMysqlConn] = None
     try:
         # 连接数据库
-        mes_conn = get_mes_conn()
+        mes_conn = get_mes_conn(
+            host=args.mes_host,
+            port=args.mes_port,
+            user=args.mes_user,
+            password=args.mes_pass,
+            database=args.mes_name,
+        )
         logging.info("连接 MES 数据库成功")
-        plus_conn = get_plus_conn()
+        plus_conn = get_plus_conn(
+            host=args.plus_host,
+            port=args.plus_port,
+            user=args.plus_user,
+            password=args.plus_pass,
+            database=args.plus_name,
+        )
         logging.info("连接 PLUS 数据库成功")
 
         # 获取近期更新的条码生成记录
@@ -245,7 +292,14 @@ if __name__ == "__main__":
                 continue
 
             # 更新 PLUS 已导入的条码
-            plus_txn_conn = get_plus_conn(autocommit=False)
+            plus_txn_conn = get_plus_conn(
+                host=args.plus_host,
+                port=args.plus_port,
+                user=args.plus_user,
+                password=args.plus_pass,
+                database=args.plus_name,
+                autocommit=False,
+            )
             try:
                 # 删除 PLUS 已导入的条码
                 delete_count = delete_plus_imported_barcodes(plus_txn_conn, order_code)

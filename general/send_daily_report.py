@@ -25,20 +25,16 @@ def parse_args():
     parser = argparse.ArgumentParser(description="每日截图报告脚本")
 
     # CJPLUS 配置
-    parser.add_argument("--base-url", required=True, metavar="", help="CJPLUS 系统 URL")
-    parser.add_argument("--username", required=True, metavar="", help="CJPLUS 用户名")
-    parser.add_argument("--password", required=True, metavar="", help="CJPLUS 密码")
+    parser.add_argument("--base-url", required=True, help="CJPLUS 系统 URL")
+    parser.add_argument("--username", required=True, help="CJPLUS 用户名")
+    parser.add_argument("--password", required=True, help="CJPLUS 密码")
 
     # SMTP 配置
-    parser.add_argument(
-        "--smtp-host", required=True, metavar="", help="SMTP 服务器地址"
-    )
-    parser.add_argument(
-        "--smtp-port", required=True, type=int, metavar="", help="SMTP 服务器端口"
-    )
-    parser.add_argument("--smtp-from", required=True, metavar="", help="发件人邮箱")
-    parser.add_argument("--smtp-pass", required=True, metavar="", help="发件人密码")
-    parser.add_argument("--smtp-to", required=True, metavar="", help="收件人邮箱")
+    parser.add_argument("--smtp-host", required=True, help="SMTP 服务器地址")
+    parser.add_argument("--smtp-port", required=True, type=int, help="SMTP 服务器端口")
+    parser.add_argument("--smtp-from", required=True, help="发件人邮箱")
+    parser.add_argument("--smtp-pass", required=True, help="发件人密码")
+    parser.add_argument("--smtp-to", required=True, help="收件人邮箱")
 
     # 临时目录（可选）
     parser.add_argument(
