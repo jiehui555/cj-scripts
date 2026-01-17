@@ -1,3 +1,4 @@
+import argparse
 from datetime import datetime
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
@@ -6,15 +7,12 @@ import logging
 import os
 import shutil
 import smtplib
-from typing import Any, List, Optional
+from typing import List, Optional
 import zipfile
 from zoneinfo import ZoneInfo
 
-from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright, ViewportSize, Page, Locator
 from PIL import Image
-
-load_dotenv()
 
 logging.basicConfig(
     level=logging.INFO,
@@ -22,34 +20,50 @@ logging.basicConfig(
 )
 
 
-def config(key: str, default: Any = None) -> Any:
-    """获取配置"""
-    current_path = os.path.dirname(os.path.abspath(__file__))
+def parse_args():
+    """解析命令行参数"""
+    parser = argparse.ArgumentParser(description="每日截图报告脚本")
 
-    data = {
-        "TEMP_DIR": os.path.join(current_path, "temp", "send_daily_report"),
-        "CJPLUS_URL": os.getenv("CJPLUS_URL"),
-        "CJPLUS_USERNAME": os.getenv("CJPLUS_USERNAME"),
-        "CJPLUS_PASSWORD": os.getenv("CJPLUS_PASSWORD"),
-        "CJPLUS_REPORTS": [
-            {"name": "今日新单报表", "page": 208},
-            {"name": "延期出货明细表", "page": 220},
-            {"name": "宏智出货报表", "page": 210, "has_tail": False},
-            {"name": "技果出货报表", "page": 207, "has_tail": False},
-            {"name": "迅成出货报表", "page": 206, "has_tail": False},
-            {"name": "金安出货报表", "page": 212, "has_tail": False},
-            {"name": "长嘉出货报表", "page": 205, "has_tail": True},
-        ],
-        "SMTP_HOST": os.getenv("SMTP_HOST"),
-        "SMTP_PORT": os.getenv("SMTP_PORT"),
-        "SMTP_FROM": os.getenv("SMTP_FROM"),
-        "SMTP_PASS": os.getenv("SMTP_PASS"),
-        "SMTP_TO": os.getenv("SMTP_TO"),
-    }
-    return data.get(key, default)
+    # CJPLUS 配置
+    parser.add_argument("--base-url", required=True, metavar="", help="CJPLUS 系统 URL")
+    parser.add_argument("--username", required=True, metavar="", help="CJPLUS 用户名")
+    parser.add_argument("--password", required=True, metavar="", help="CJPLUS 密码")
+
+    # SMTP 配置
+    parser.add_argument(
+        "--smtp-host", required=True, metavar="", help="SMTP 服务器地址"
+    )
+    parser.add_argument(
+        "--smtp-port", required=True, type=int, metavar="", help="SMTP 服务器端口"
+    )
+    parser.add_argument("--smtp-from", required=True, metavar="", help="发件人邮箱")
+    parser.add_argument("--smtp-pass", required=True, metavar="", help="发件人密码")
+    parser.add_argument("--smtp-to", required=True, metavar="", help="收件人邮箱")
+
+    # 临时目录（可选）
+    parser.add_argument(
+        "--temp-dir", help="临时目录路径，默认为脚本目录下的 temp/send_daily_report"
+    )
+
+    return parser.parse_args()
 
 
-def screenshot():
+# 获取脚本所在目录
+CURRENT_PATH = os.path.dirname(os.path.abspath(__file__))
+
+# 报表配置
+CJPLUS_REPORTS = [
+    {"name": "今日新单报表", "page": 208},
+    {"name": "延期出货明细表", "page": 220},
+    {"name": "宏智出货报表", "page": 210, "has_tail": False},
+    {"name": "技果出货报表", "page": 207, "has_tail": False},
+    {"name": "迅成出货报表", "page": 206, "has_tail": False},
+    {"name": "金安出货报表", "page": 212, "has_tail": False},
+    {"name": "长嘉出货报表", "page": 205, "has_tail": True},
+]
+
+
+def screenshot(base_url: str, username: str, password: str, temp_dir: str):
     """截取图片"""
     img_paths = []
     with sync_playwright() as pw:
@@ -64,28 +78,28 @@ def screenshot():
         logging.info("创建新页面")
 
         # 登录后台
-        page.goto(config("CJPLUS_URL"), wait_until="networkidle", timeout=30_000)
+        page.goto(base_url, wait_until="networkidle", timeout=30_000)
         page.wait_for_selector('input[name="user"]', timeout=5_000)
         logging.info("已加载登录页面")
 
-        page.fill('input[name="user"]', config("CJPLUS_USERNAME"))
-        page.fill('input[name="pass"]', config("CJPLUS_PASSWORD"))
+        page.fill('input[name="user"]', username)
+        page.fill('input[name="pass"]', password)
         page.click('input[type="submit"]')
         page.wait_for_load_state("networkidle", timeout=30_000)
         logging.info("已成功登录后台")
 
         # 处理每个报表
-        for report in config("CJPLUS_REPORTS"):
-            url = f"{config('CJPLUS_URL')}/utl/{report['page']}/{report['page']}.php"
+        for report in CJPLUS_REPORTS:
+            url = f"{base_url}/utl/{report['page']}/{report['page']}.php"
             logging.info(f'处理报表：{report["name"]} - {url}')
 
             if report["name"] == "今日新单报表":
-                img_path = __screenshot_new_order_report(page, url)
+                img_path = __screenshot_new_order_report(page, url, temp_dir)
             elif report["name"] == "延期出货明细表":
-                img_path = __screenshot_delay_shipment_report(page, url)
+                img_path = __screenshot_delay_shipment_report(page, url, temp_dir)
             else:
                 img_path = __screenshot_company_shipment_report(
-                    page, url, report["name"], report.get("has_tail", False)
+                    page, url, report["name"], report.get("has_tail", False), temp_dir
                 )
 
             img_paths.append(img_path)
@@ -94,21 +108,21 @@ def screenshot():
     return img_paths
 
 
-def __screenshot_new_order_report(page: Page, url: str) -> str:
+def __screenshot_new_order_report(page: Page, url: str, temp_dir: str) -> str:
     """截取「今日新单报表」"""
     page.goto(url, wait_until="networkidle", timeout=60_000)
     page.wait_for_selector("#table", state="visible", timeout=5_000)
     logging.info("已加载数据表格页")
 
     today = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d")
-    img_path = os.path.join(config("TEMP_DIR"), f"今日新单报表_{today}.png")
+    img_path = os.path.join(temp_dir, f"今日新单报表_{today}.png")
     page.locator("#table").screenshot(path=img_path)
     logging.info(f"已截取数据表格页：{img_path}")
 
     return img_path
 
 
-def __screenshot_delay_shipment_report(page: Page, url: str) -> str:
+def __screenshot_delay_shipment_report(page: Page, url: str, temp_dir: str) -> str:
     """截取「延期出货明细表」"""
     page.goto(url, wait_until="networkidle", timeout=30_000)
     page.wait_for_selector("#table", state="visible", timeout=5_000)
@@ -118,7 +132,7 @@ def __screenshot_delay_shipment_report(page: Page, url: str) -> str:
     logging.info("已隐藏顶部表单")
 
     today = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d")
-    img_path = os.path.join(config("TEMP_DIR"), f"延期出货明细表_{today}.png")
+    img_path = os.path.join(temp_dir, f"延期出货明细表_{today}.png")
 
     page.locator("#table").screenshot(path=img_path)
     logging.info(f"已截取数据表格页：{img_path}")
@@ -127,13 +141,12 @@ def __screenshot_delay_shipment_report(page: Page, url: str) -> str:
 
 
 def __screenshot_company_shipment_report(
-    page: Page, url: str, report: str, has_tail: bool
+    page: Page, url: str, report: str, has_tail: bool, temp_dir: str
 ) -> str:
     """截取「公司出货报表」"""
 
     img_paths = []  # 局部截图
     now = datetime.now(ZoneInfo("Asia/Shanghai"))
-    TEMP_DIR = config("TEMP_DIR")
 
     # 加载数据表格页
     page.goto(url, wait_until="networkidle", timeout=30_000)
@@ -141,20 +154,20 @@ def __screenshot_company_shipment_report(
     logging.info("已加载数据表格页")
 
     # 截取表头
-    img_path = os.path.join(TEMP_DIR, f"{report}_局部截图-表头.png")
+    img_path = os.path.join(temp_dir, f"{report}_局部截图-表头.png")
     page.locator("thead").screenshot(path=img_path)
     img_paths.append(img_path)
     logging.info(f"已截取表头：{img_path}")
 
     # 截取延期出货
-    img_path = os.path.join(TEMP_DIR, f"{report}_局部截图-延期出货.png")
+    img_path = os.path.join(temp_dir, f"{report}_局部截图-延期出货.png")
     page.locator('tbody[data-type="延期出货"]').screenshot(path=img_path)
     img_paths.append(img_path)
     logging.info(f"已截取延期出货：{img_path}")
 
     # 截取货尾
     if has_tail:
-        img_path = os.path.join(TEMP_DIR, f"{report}_局部截图-货尾.png")
+        img_path = os.path.join(temp_dir, f"{report}_局部截图-货尾.png")
         page.locator('tbody[data-type="货尾"]').screenshot(path=img_path)
         img_paths.append(img_path)
         logging.info(f"已截取货尾：{img_path}")
@@ -165,7 +178,7 @@ def __screenshot_company_shipment_report(
         if page.locator(css_locator).count() == 0:
             __append_blank_month_tbody(page.locator("table"), i)
             logging.info(f"添加空白的 {i} 月数据")
-        img_path = os.path.join(TEMP_DIR, f"{report}_局部截图-{i} 月.png")
+        img_path = os.path.join(temp_dir, f"{report}_局部截图-{i} 月.png")
         page.locator(css_locator).screenshot(path=img_path)
         img_paths.append(img_path)
         logging.info(f"已截取 {i} 月数据：{img_path}")
@@ -183,7 +196,7 @@ def __screenshot_company_shipment_report(
             if page.locator(css_locator).count() == 0:
                 __append_blank_month_tbody(page.locator("table"), i)
                 logging.info(f"添加空白的 {i} 月数据")
-            img_path = os.path.join(TEMP_DIR, f"{report}_局部截图-{i} 月.png")
+            img_path = os.path.join(temp_dir, f"{report}_局部截图-{i} 月.png")
             page.locator(css_locator).screenshot(path=img_path)
             img_paths.append(img_path)
 
@@ -196,19 +209,19 @@ def __screenshot_company_shipment_report(
         months = [2, 1, 12]
 
     merge_order = [
-        os.path.join(TEMP_DIR, f"{report}_局部截图-表头.png"),
-        os.path.join(TEMP_DIR, f"{report}_局部截图-延期出货.png"),
+        os.path.join(temp_dir, f"{report}_局部截图-表头.png"),
+        os.path.join(temp_dir, f"{report}_局部截图-延期出货.png"),
     ]
     if has_tail:
-        merge_order.append(os.path.join(TEMP_DIR, f"{report}_局部截图-货尾.png"))
+        merge_order.append(os.path.join(temp_dir, f"{report}_局部截图-货尾.png"))
     merge_order += [
-        os.path.join(TEMP_DIR, f"{report}_局部截图-{m} 月.png") for m in months
+        os.path.join(temp_dir, f"{report}_局部截图-{m} 月.png") for m in months
     ]
     logging.info(f"需要合并的图片：{merge_order}")
 
     # 合并图片
     save_name = f"{report}_{now.strftime('%Y-%m-%d')}"
-    full_img_path = __merge_images(merge_order, save_name, output_dir=TEMP_DIR)
+    full_img_path = __merge_images(merge_order, save_name, output_dir=temp_dir)
     logging.info(f"图片合并完成，保存路径: {full_img_path}")
 
     return full_img_path
@@ -286,12 +299,20 @@ def __merge_images(
     return save_path
 
 
-def send_report_email(img_paths: List[str]) -> None:
+def send_report_email(
+    img_paths: List[str],
+    temp_dir: str,
+    smtp_host: str,
+    smtp_port: int,
+    smtp_from: str,
+    smtp_pass: str,
+    smtp_to: str,
+) -> None:
     """发送报表邮件"""
     today = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d")
 
     # 打包图片
-    zip_path = os.path.join(config("TEMP_DIR"), f"每日截图-打包-{today}.zip")
+    zip_path = os.path.join(temp_dir, f"每日截图-打包-{today}.zip")
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zipf:
         for result_img_path in img_paths:
             if os.path.exists(result_img_path):
@@ -304,8 +325,8 @@ def send_report_email(img_paths: List[str]) -> None:
     # 发送邮件
     message = MIMEMultipart()
     message["Subject"] = f"每日截图 - {today}"
-    message["From"] = config("SMTP_FROM")
-    message["To"] = config("SMTP_TO")
+    message["From"] = smtp_from
+    message["To"] = smtp_to
 
     body = f"""
         <p>附件是今天的所有报表截图打包（{today}）</p>
@@ -317,24 +338,42 @@ def send_report_email(img_paths: List[str]) -> None:
             filename = os.path.basename(zip_path)
             message.attach(MIMEApplication(file.read(), Name=filename))
 
-    with smtplib.SMTP_SSL(config("SMTP_HOST"), config("SMTP_PORT")) as server:
-        server.login(config("SMTP_FROM"), config("SMTP_PASS"))
-        server.sendmail(config("SMTP_FROM"), [config("SMTP_TO")], message.as_string())
+    with smtplib.SMTP_SSL(smtp_host, smtp_port) as server:
+        server.login(smtp_from, smtp_pass)
+        server.sendmail(smtp_from, [smtp_to], message.as_string())
         server.quit()
 
 
 if __name__ == "__main__":
+    # 解析命令行参数
+    args = parse_args()
+
+    # 确定临时目录
+    temp_dir = args.temp_dir or os.path.join(CURRENT_PATH, "temp", "send_daily_report")
+
     # 重置临时目录
-    TEMP_DIR = f"{config('TEMP_DIR')}"
-    if os.path.exists(TEMP_DIR):
-        shutil.rmtree(TEMP_DIR)
-    os.makedirs(TEMP_DIR, exist_ok=True)
-    logging.info(f"已清理并创建临时目录: {TEMP_DIR}")
+    if os.path.exists(temp_dir):
+        shutil.rmtree(temp_dir)
+    os.makedirs(temp_dir, exist_ok=True)
+    logging.info(f"已清理并创建临时目录: {temp_dir}")
 
     # 截取图片
-    images = screenshot()
+    images = screenshot(
+        base_url=args.base_url,
+        username=args.username,
+        password=args.password,
+        temp_dir=temp_dir,
+    )
     logging.info(f"图片截取完成，共{len(images)}张")
 
     # 打包并发送邮件
-    send_report_email(images)
+    send_report_email(
+        img_paths=images,
+        temp_dir=temp_dir,
+        smtp_host=args.smtp_host,
+        smtp_port=args.smtp_port,
+        smtp_from=args.smtp_from,
+        smtp_pass=args.smtp_pass,
+        smtp_to=args.smtp_to,
+    )
     logging.info("已发送邮件")
