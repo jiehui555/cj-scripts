@@ -106,7 +106,7 @@ def screenshot(base_url: str, username: str, password: str, temp_dir: str):
 
 def __screenshot_new_order_report(page: Page, url: str, temp_dir: str) -> str:
     """截取「今日新单报表」"""
-    page.goto(url, wait_until="networkidle", timeout=60_000)
+    page.goto(url, wait_until="networkidle", timeout=180_000)
     page.wait_for_selector("#table", state="visible", timeout=5_000)
     logging.info("已加载数据表格页")
 
